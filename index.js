@@ -70,7 +70,6 @@ MagicHomeAccessory.prototype.getServices = function () {
 };
 
 // MARK: - UTIL
-
 MagicHomeAccessory.prototype.sendCommand = function (command, callback) {
     var exec = require('child_process').exec;
     var cmd = __dirname + '/flux_led.py ' + this.ip + ' ' + command;
@@ -133,7 +132,6 @@ MagicHomeAccessory.prototype.setToWarmWhite = function () {
 };
 
 // MARK: - POWERSTATE
-
 MagicHomeAccessory.prototype.getPowerState = function (callback) {
     this.getState(function (settings) {
         callback(null, settings.on);
