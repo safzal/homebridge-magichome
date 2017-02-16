@@ -4,7 +4,7 @@ var convert = require('color-convert');
 
 var Characteristic, Service;
 
-module.exports = function(homebridge){
+module.exports = function (homebridge) {
     console.log("homebridge API version: " + homebridge.version);
 
     Service = homebridge.hap.Service;
@@ -15,27 +15,27 @@ module.exports = function(homebridge){
 
 function MagicHomeAccessory(log, config, api) {
 
-	this.log = log;
-	this.config = config;
-	this.name = config.name || 'LED Controller';
-    this.setup = config.setup || 'RGBW';
-	this.port = config.port || 5577;
-	this.ip = config.ip;
-	this.color = {H: 255, S:100, L:50};
-	this.brightness = 100;
+    this.log = log;
+    this.config = config;
+    this.name = config.name || 'LED Controller';
+    this.setup = config.setup || 'RGB';
+    this.port = config.port || 5577;
+    this.ip = config.ip;
+    this.color = {H: 0, S: 0, L: 100};
+    this.brightness = 100;
     this.purewhite = config.purewhite || false;
-
-	this.getColorFromDevice();
+    this.func = 0;
+    this.getColorFromDevice();
 
 }
 
-MagicHomeAccessory.prototype.identify = function(callback) {
-	this.log('Identify requested!');
+MagicHomeAccessory.prototype.identify = function (callback) {
+    this.log('Identify requested!');
     callback();
 };
 
-MagicHomeAccessory.prototype.getServices = function() {
-	var informationService = new Service.AccessoryInformation();
+MagicHomeAccessory.prototype.getServices = function () {
+    var informationService = new Service.AccessoryInformation();
 
     informationService
         .setCharacteristic(Characteristic.Manufacturer, 'ACME Ltd.')
@@ -54,12 +54,13 @@ MagicHomeAccessory.prototype.getServices = function() {
         .on('get', this.getHue.bind(this))
         .on('set', this.setHue.bind(this));
 
+
     lightbulbService
         .addCharacteristic(new Characteristic.Saturation())
         .on('get', this.getSaturation.bind(this))
         .on('set', this.setSaturation.bind(this));
 
-	lightbulbService
+    lightbulbService
         .addCharacteristic(new Characteristic.Brightness())
         .on('get', this.getBrightness.bind(this))
         .on('set', this.setBrightness.bind(this));
@@ -70,119 +71,120 @@ MagicHomeAccessory.prototype.getServices = function() {
 
 // MARK: - UTIL
 
-MagicHomeAccessory.prototype.sendCommand = function(command, callback) {
-	var exec = require('child_process').exec;
-	var cmd =  __dirname + '/flux_led.py ' + this.ip + ' ' + command;
-	exec(cmd, callback);
+MagicHomeAccessory.prototype.sendCommand = function (command, callback) {
+    var exec = require('child_process').exec;
+    var cmd = __dirname + '/flux_led.py ' + this.ip + ' ' + command;
+    try {
+        exec(cmd, callback);
+    } catch(e) {
+        console.log("Send command Error " + e.message);  
+    }
 };
 
 MagicHomeAccessory.prototype.getState = function (callback) {
-	this.sendCommand('-i', function(error, stdout) {
-		var settings = {
-			on: false,
-			color: {H: 255, S: 100, L: 50}
-		};
+    this.sendCommand('-i', function (error, stdout) {
+        var settings = {
+            on: false,
+            color: {H: 0, S: 0, L: 100}
+        };
+        var colors = stdout.match(/\(\d{1,3}\, \d{1,3}, \d{1,3}\)/g);
+        var isOn = stdout.match(/\] ON /g);
+        if (isOn && isOn.length > 0) settings.on = true;
+        if (colors && colors.length > 0) {
+            var converted = convert.rgb.hsl(String(colors).match(/\d{1,3}/g));
+            settings.color = {
+                H: converted[0],
+                S: converted[1],
+                L: converted[2]
+            };
+        }
+        callback(settings);
 
-		var colors = stdout.match(/\(\d{3}\, \d{3}, \d{3}\)/g);
-		var isOn = stdout.match(/\] ON /g);
-
-		if(isOn && isOn.length > 0) settings.on = true;
-		if(colors && colors.length > 0) {
-			var converted = convert.rgb.hsl(stdout.match(/\d{3}/g));
-			settings.color = {
-				H: converted[0],
-				S: converted[1],
-				L: converted[2],
-			};
-		}
-
-		callback(settings);
-
-	});
+    });
 };
 
-MagicHomeAccessory.prototype.getColorFromDevice = function() {
-	this.getState(function(settings) {
-		this.color = settings.color;
-		this.log("DEVICE COLOR: %s", settings.color.H+','+settings.color.S+','+settings.color.L);
-	}.bind(this));
+MagicHomeAccessory.prototype.getColorFromDevice = function () {
+    this.getState(function (settings) {
+        this.color = settings.color;
+    }.bind(this));
 };
 
-MagicHomeAccessory.prototype.setToCurrentColor = function() {
-	var color = this.color;
-
-    if(color.S == 0 && color.H == 0 && this.purewhite) {
-        this.setToWarmWhite();
-        return
+MagicHomeAccessory.prototype.setToCurrentColor = function () {
+    var color = this.color;
+    var brightness = this.brightness;
+    if (color.S === 0 && color.H === 0) {
+	    if(this.purewhite) {
+			this.setToWarmWhite();
+			return;
+        } else {
+	        color.L = this.brightness;
+        }
+    } else {
+        color.L = 50;
     }
-
-	var brightness = this.brightness;
-	var converted = convert.hsl.rgb([color.H, color.S, color.L]);
-
-    var base = '-x ' + this.setup + ' -c';
-	this.sendCommand(base + Math.round((converted[0] / 100) * brightness) + ',' + Math.round((converted[1] / 100) * brightness) + ',' + Math.round((converted[2] / 100) * brightness));
+    var converted = convert.hsl.rgb([color.H, color.S, color.L]);
+    var base = '-c '+ Math.round((converted[0] / 100) * brightness) + ',' + Math.round((converted[1] / 100) * brightness) + ',' + Math.round((converted[2] / 100) * brightness);
+    this.sendCommand(base);
 };
 
-MagicHomeAccessory.prototype.setToWarmWhite = function() {
+MagicHomeAccessory.prototype.setToWarmWhite = function () {
     var brightness = this.brightness;
     this.sendCommand('-w ' + brightness);
 };
 
 // MARK: - POWERSTATE
 
-MagicHomeAccessory.prototype.getPowerState = function(callback) {
-	this.getState(function(settings) {
-		callback(null, settings.on);
-	});
+MagicHomeAccessory.prototype.getPowerState = function (callback) {
+    this.getState(function (settings) {
+        callback(null, settings.on);
+    });
 };
 
-MagicHomeAccessory.prototype.setPowerState = function(value, callback) {
-	this.sendCommand(value ? '--on' : '--off', function() {
-		callback();
-	});
+MagicHomeAccessory.prototype.setPowerState = function (value, callback) {
+    this.sendCommand(value ? '--on' : '--off', function () {
+        callback();
+    });
 };
-
 
 // MARK: - HUE
-
-MagicHomeAccessory.prototype.getHue = function(callback) {
-	var color = this.color;
-	callback(null, color.H);
+MagicHomeAccessory.prototype.getHue = function (callback) {
+    var color = this.color;
+    callback(null, color.H);
 };
 
-MagicHomeAccessory.prototype.setHue = function(value, callback) {
-	this.color.H = value;
-	this.setToCurrentColor();
-	this.log("HUE: %s", value);
-
-	callback();
-};
-
-// MARK: - BRIGHTNESS
-
-MagicHomeAccessory.prototype.getBrightness = function(callback) {
-	var brightness = this.brightness;
-	callback(null, brightness);
-};
-
-MagicHomeAccessory.prototype.setBrightness = function(value, callback) {
-	this.brightness = value;
-	this.setToCurrentColor();
-	this.log("BRIGHTNESS: %s", value);
-	callback();
+MagicHomeAccessory.prototype.setHue = function (value, callback) {
+    this.color.H = value;
+    clearTimeout(this.func);
+    this.func = setTimeout(this.setToCurrentColor.bind(this), 1000);
+    this.log("HUE: %s", value);
+    callback();
 };
 
 // MARK: - SATURATION
-
-MagicHomeAccessory.prototype.getSaturation = function(callback) {
-	var color = this.color;
-	callback(null, color.S);
+MagicHomeAccessory.prototype.getSaturation = function (callback) {
+    var color = this.color;
+    callback(null, color.S);
 };
 
-MagicHomeAccessory.prototype.setSaturation = function(value, callback) {
-	this.color.S = value;
-	this.setToCurrentColor();
-	this.log("SATURATION: %s", value);
-
-	callback();
+MagicHomeAccessory.prototype.setSaturation = function (value, callback) {
+    this.color.S = value;
+    clearTimeout(this.func);
+    this.func = setTimeout(this.setToCurrentColor.bind(this), 1000);
+    this.log("SATURATION: %s", value);
+    callback();
 };
+
+// MARK: - BRIGHTNESS
+MagicHomeAccessory.prototype.getBrightness = function (callback) {
+    var brightness = this.brightness;
+    callback(null, brightness);
+};
+
+MagicHomeAccessory.prototype.setBrightness = function (value, callback) {
+    this.brightness = value;
+    clearTimeout(this.func);
+    this.func = setTimeout(this.setToCurrentColor.bind(this), 1000);
+    this.log("BRIGHTNESS: %s", value);
+    callback();
+};
+
