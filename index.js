@@ -24,7 +24,7 @@ function MagicHomeAccessory(log, config, api) {
     this.color = {H: 0, S: 0, L: 100};
     this.brightness = 100;
     this.purewhite = config.purewhite || false;
-    this.func = 0;
+    this.func = '';
     this.getColorFromDevice();
 
 }
@@ -54,7 +54,6 @@ MagicHomeAccessory.prototype.getServices = function () {
         .on('get', this.getHue.bind(this))
         .on('set', this.setHue.bind(this));
 
-
     lightbulbService
         .addCharacteristic(new Characteristic.Saturation())
         .on('get', this.getSaturation.bind(this))
@@ -70,21 +69,19 @@ MagicHomeAccessory.prototype.getServices = function () {
 };
 
 // MARK: - UTIL
+
 MagicHomeAccessory.prototype.sendCommand = function (command, callback) {
     var exec = require('child_process').exec;
     var cmd = __dirname + '/flux_led.py ' + this.ip + ' ' + command;
-    try {
-        exec(cmd, callback);
-    } catch(e) {
-        console.log("Send command Error " + e.message);  
-    }
+    exec(cmd, callback);
 };
 
 MagicHomeAccessory.prototype.getState = function (callback) {
     this.sendCommand('-i', function (error, stdout) {
         var settings = {
             on: false,
-            color: {H: 0, S: 0, L: 100}
+            color: {H: 0, S: 0, L: 100},
+            brightness: 100
         };
         var colors = stdout.match(/\(\d{1,3}\, \d{1,3}, \d{1,3}\)/g);
         var isOn = stdout.match(/\] ON /g);
@@ -97,26 +94,29 @@ MagicHomeAccessory.prototype.getState = function (callback) {
                 L: converted[2]
             };
         }
+        var brightness = String(stdout.match(/Brightness: \d{1,3} raw/g)).match(/\d{1,3}/g);
+        settings.brightness = Math.round((brightness / 255 ) * 100);
         callback(settings);
-
     });
 };
 
 MagicHomeAccessory.prototype.getColorFromDevice = function () {
     this.getState(function (settings) {
         this.color = settings.color;
+        this.brightness = settings.brightness;
     }.bind(this));
 };
 
 MagicHomeAccessory.prototype.setToCurrentColor = function () {
     var color = this.color;
     var brightness = this.brightness;
-    if (color.S === 0 && color.H === 0) {
-	    if(this.purewhite) {
-			this.setToWarmWhite();
-			return;
+    if (color.S == 0 && color.H == 0) {
+	if(this.purewhite) {
+		this.setToWarmWhite();
+		return
         } else {
-	        color.L = this.brightness;
+	       	color.L = this.brightness;
+		brightness = 100;
         }
     } else {
         color.L = 50;
@@ -131,7 +131,7 @@ MagicHomeAccessory.prototype.setToWarmWhite = function () {
     this.sendCommand('-w ' + brightness);
 };
 
-// MARK: - POWERSTATE
+// MARK: - POWER STATE
 MagicHomeAccessory.prototype.getPowerState = function (callback) {
     this.getState(function (settings) {
         callback(null, settings.on);
@@ -173,9 +173,11 @@ MagicHomeAccessory.prototype.setSaturation = function (value, callback) {
 };
 
 // MARK: - BRIGHTNESS
-MagicHomeAccessory.prototype.getBrightness = function (callback) {
-    var brightness = this.brightness;
-    callback(null, brightness);
+ MagicHomeAccessory.prototype.getBrightness = function (callback) {
+     this.getState(function (settings) {
+         this.brightness = settings.brightness;
+         callback(null, settings.brightness);
+     }.bind(this));
 };
 
 MagicHomeAccessory.prototype.setBrightness = function (value, callback) {
@@ -185,4 +187,3 @@ MagicHomeAccessory.prototype.setBrightness = function (value, callback) {
     this.log("BRIGHTNESS: %s", value);
     callback();
 };
-
