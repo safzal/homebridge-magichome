@@ -9,7 +9,7 @@ The plugin includes and uses a slightly modified version of [flux_led.py](https:
 First, install the plugin globally.
 
 ````
-npm install -g homebridge-magichome
+npm install -g https://github.com/safzal/homebridge-magichome
 ````
 
 Next, add a new accessory to your Homebridge `config.json`. You can add as many Magic Home-based accessories as you like in the following format:
